@@ -1,0 +1,6 @@
+*.csv
+*.xlsx
+*.xls
+target/
+src/main/java/cn/shuhe/risk/policy/RuleExc.java
+src/main/java/cn/shuhe/risk/policy/TestOnly.java

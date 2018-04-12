@@ -1,0 +1,41 @@
+package cn.caijiajia.autoaudit.domain.drool;
+
+import java.util.Map;
+
+rule "yit-flag"
+    no-loop true
+    when 
+        a: Map(this.isEmpty())
+    then
+    	a.put("flag", "0");
+        a.put("retCode", "YIT");
+end
+
+//yit
+rule "YIT"
+    no-loop true
+   
+    when 
+    	a: Map(this.isEmpty())
+    	Map(yitFcvVerify : this['yitFcvVerify'],
+    		yitFcvVerify != null,
+    		yitFcvVerify['pairVerifySimilarity'] <= 65)
+
+    then
+    	additional(a, "YIT01");       
+end
+
+
+// 通用方法
+function void reject(Map a, String code){
+	a.put("flag", "1");
+    a.put("retCode", a.get("retCode").toString().concat("|").concat(code)); 
+}
+
+function void additional(Map a, String code){
+	String oldCode = (String)a.get("additionalCode");
+	if(oldCode != null){
+		code = oldCode.concat("|").concat(code);
+	}
+	a.put("additionalCode", code);
+}

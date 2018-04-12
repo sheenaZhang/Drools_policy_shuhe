@@ -1,0 +1,57 @@
+package cn.caijiajia.autoaudit.domain.drool;
+
+import java.util.Map;
+
+rule "qnh-flag"
+    no-loop true
+       
+    when 
+        a: Map(this.isEmpty())
+    then
+    	a.put("flag", "0");
+        a.put("retCode","QNH");
+end
+
+//Qnh
+rule "QNH"
+    no-loop true
+   
+    when 
+    	a: Map(this.isEmpty())
+        Map(qnhRskInfo: this['qnhRskInfo'], qnhRskInfo != null , gradequery: this['qnhRskInfo']['gradequery'], gradequery != null, gradequery != '')
+
+    then
+        // 加入黑名单逻辑
+        a.put("isBlk", true);
+        a.put("source", "QIANHAI");
+        a.put("dimension", "0");
+        a.put("reason", gradequery);
+        String blkType = "";
+        if (gradequery.equals("3") || gradequery.equals("5") || gradequery.equals("6")) {
+        	blkType = "OVERDUE";
+        } else if (gradequery.equals("1") || gradequery.equals("9")) {
+        	blkType = "EXECUTED";
+        } else if (gradequery.equals("7")) {
+        	blkType = "FAKE";
+        }
+        a.put("blkType", blkType);
+        // 判断是否通过
+        if(!"OVERDUE".equals(blkType)){
+		 	a.put("remark", "击中前海黑名单：" + gradequery);
+			reject(a, "01");
+		}
+end
+
+// 通用方法
+function void reject(Map a, String code){
+	a.put("flag", "1");
+    a.put("retCode", a.get("retCode").toString().concat("|").concat(code)); 
+}
+
+function void additional(Map a, String code){
+	String oldCode = (String)a.get("additionalCode");
+	if(oldCode != null){
+		code = oldCode.concat("|").concat(code);
+	}
+	a.put("additionalCode", code);
+}

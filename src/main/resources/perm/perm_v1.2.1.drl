@@ -1,0 +1,431 @@
+package cn.caijiajia.loan.domain.drools;
+
+import java.util.Date;
+import java.util.Calendar;
+import java.text.SimpleDateFormat;
+import java.util.Map;
+
+// 20170814 调整地区
+
+
+rule "perm-flag"
+    no-loop true
+    when 
+        a: Map(this.isEmpty())
+    then
+    	a.put("flag", "0");
+        a.put("retCode", "PERM");
+end
+
+rule "4-工作地区、学历"
+    no-loop true   
+    when
+        a: Map(this.isEmpty())
+        Map(applyInfo : this['applyInfo'], 
+        	applyInfo != null, 
+        	(applyInfo['province']  matches '新疆.*' || matches '西藏.*' || matches '甘肃.*' || matches '青海.*' || matches '宁夏.*'),
+        	system: this['system']
+         	)
+    then
+        reject(a, "04", system);        
+end
+
+rule "4-工作地区、学历 addition"
+    no-loop true   
+    when
+        a: Map(this.isEmpty())
+        Map(applyInfo : this['applyInfo'], 
+        	applyInfo != null, 
+         	system: this['system'],
+            ((applyInfo['province'] matches '辽宁.*' || matches '内蒙古.*' || matches '黑龙江.*' || matches '吉林.*') && 
+            (applyInfo['academic'] matches "高中以下" || matches "高中及中专" || matches "大专"))||
+            ((applyInfo['city']	matches '遵义.*' || matches '十堰.*' || matches '淮南.*' ||
+         	     	matches '清远.*' || matches '榆林.*' || matches '安阳.*' || matches'石家庄.*' ||
+         			matches '曲靖.*' || matches '威海.*' || matches '日照.*' || matches '许昌.*'  ||
+         			matches '银川.*' || matches '鄂尔多斯.*' || matches '九江.*' || matches'上饶.*' ||
+         			matches '营口.*' || matches '西宁.*' || matches '鞍山.*' || matches '郑州.*' ||
+         			matches '唐山.*' || matches '盐城.*' || matches '柳州.*' || matches '徐州.*' ||
+         			matches '晋城.*' || matches '洛阳.*' || matches '三明.*' || matches '绵阳.*' ||
+         			matches '赣州.*' || matches '滨州.*' || matches '潍坊.*' || matches '宝鸡.*' || matches '太原.*') && 
+         	(applyInfo['academic'] matches "高中以下" || matches "高中及中专" || matches "大专"))
+            )
+    then
+        additional(a, "PERM04");        
+end
+
+
+rule "5 年龄准入判断"
+    no-loop true    
+    when
+        a: Map(this.isEmpty()) 
+        Map(!this.isEmpty(), this['applyInfo'] != null, identificationNo : this['applyInfo']['identificationNo'], identificationNo != null, system: this['system'])	
+    then
+    	int age = getAge((String)identificationNo);
+    	if(age < 20 || age > 45){
+   			reject(a, "05", system); 	
+    	}    
+end
+
+
+rule "6 身份证号准入判断"
+    no-loop true
+    when
+        a: Map(this.isEmpty()) 
+        Map(applyInfo : this['applyInfo'], 
+        	applyInfo != null, 
+        	system: this['system'],
+        	academic : this['applyInfo']['academic'],
+        	applyInfo['identificationNo'] matches "3509.+" || matches "3522.+" || 
+					matches "350128.+"  || matches "3505.+"       ||
+                    matches "350400.+" 	|| matches "350401.+" 	  ||
+                    matches "350402.+" 	|| matches "350403.+" 	  ||
+                    matches "4405.+" 	|| matches "441323.+"  	  ||
+                    matches "1506.+" 	|| matches "3716.+" 	  ||
+                    matches "3723.+" 	|| matches "6108.+" 	  || 
+                    matches "330327.+" 
+        	)
+    then
+        additional(a, "PERM06");
+end
+
+
+
+rule "7 性别 学历 判断"
+    no-loop true    
+    when
+        a: Map(this.isEmpty()) 
+        Map(!this.isEmpty(),
+        	this['applyInfo'] != null,
+        	system: this['system'],
+        	identificationNo : this['applyInfo']['identificationNo'],
+        	academic : this['applyInfo']['academic'],
+        	identificationNo != null)
+    then
+    	if("高中以下".equals(academic) || "小学".equals(academic) || "初中".equals(academic)){
+    		reject(a, "07", system);
+    	}
+end
+
+rule "8 额度准入判断"
+    no-loop true    
+    when
+        a: Map(this.isEmpty()) 
+        Map(!this.isEmpty(),
+        	this['applyInfo'] != null,
+        	system: this['system'],
+        	limits : this['applyInfo']['limits'],
+        	channel: this['applyInfo']['channel'])
+    
+    then
+    	if("RONG360".equals(channel)){
+    		return;
+    	}
+    	if((Integer)limits == null || (Integer)limits > 100000 || (Integer)limits < 4000){
+    		additional(a, "PERM08");
+    	}
+    	if((Integer)limits == null || (Integer)limits < 2000){
+    		reject(a, "08", system);
+    	}
+end
+
+rule "10 申请时间准入判断"
+    no-loop true    
+    when
+        a: Map(this.isEmpty())
+        Map(!this.isEmpty(),
+        	this['applyInfo'] != null,
+        	system: this['system'],
+        	createdAt : this['applyInfo']['createdAt'])    
+    then
+    	// 系统时间
+        Date applyDate = new Date((long)createdAt);
+        SimpleDateFormat hourFormat = new SimpleDateFormat("HH");
+        Integer hours = 0;
+        try {
+            hours = Integer.parseInt(hourFormat.format(applyDate));
+        } catch (Exception e) {
+            hours = 0;
+        }
+        if(hours >= 2 && hours <= 5){
+        	additional(a, "PERM10");
+        }
+end
+
+
+rule "11 申请用户联系人手机号判断"
+	no-loop true
+	when
+		a: Map(this.isEmpty())
+        Map(applyInfo : this['applyInfo'],
+        	applyInfo != null,
+        	system: this['system'],
+        	applyInfo['mobile'] matches '170.+' || matches '171.+')  
+	then
+		reject(a, "11", system);
+end
+
+
+rule "12 申请用户的身份证有效期"
+	no-loop true
+	when
+		a: Map(this.isEmpty())
+        Map(!this.isEmpty(),
+        	this['applyInfo'] != null,
+        	system: this['system'],
+        	d1 : this['applyInfo']['cardApplyDate'],
+        	d3 : this['applyInfo']['cardDate']) 
+	then
+		if(d1 == null || d3 == null){
+			reject(a, "12", system);
+		}else{
+			long currentTime = System.currentTimeMillis();
+			long beginTime = (long)d1;
+			long endTime = (long)d3;
+			if(beginTime > currentTime || currentTime > endTime){
+				reject(a, "12", system);
+			}
+		}
+end
+
+
+rule "13 申请用户的敏感词个数"
+	no-loop true
+	when
+		a: Map(this.isEmpty())
+        Map(applyInfo : this['applyInfo'],
+        	applyInfo != null,
+        	system: this['system'],
+        	applyInfo['sensitiveUserContactCount'] > 2)
+	then
+		additional(a, "PERM13");
+end
+
+
+rule "14 是否模拟器"
+	no-loop true
+	when
+		a: Map(this.isEmpty())
+		Map(applyInfo : this['applyInfo'],
+        	applyInfo != null,
+        	system: this['system'],
+        	applyInfo['isVirtual'] == true)
+	then
+		reject(a, "14", system);
+end
+
+
+rule "18 该设备注册、登录过的账号数量"
+	no-loop true
+	when
+		a: Map(this.isEmpty())
+		Map(applyInfo : this['applyInfo'],
+        	applyInfo != null,
+        	system: this['system'],
+        	applyInfo['sameDeviceUserCount'] > 3)
+	then
+		reject(a, "18", system);
+end
+
+
+rule "20 公司名称"
+	no-loop true
+	when
+		a: Map(this.isEmpty())
+		Map(applyInfo : this['applyInfo'],
+        	applyInfo != null,
+        	system: this['system'],
+        	applyInfo['ifExistSensitiveWord'] == 1)
+	then
+		reject(a, "20", system);
+end
+
+rule "21 公司名称是没有／暂无的"
+no-loop true
+	when
+		a: Map(this.isEmpty())
+		Map(applyInfo : this['applyInfo'],
+        	applyInfo != null,
+        	system: this['system'],
+        	applyInfo['companyName'] matches '暂无' || applyInfo['companyName'] matches '没有' || applyInfo['companyName'] matches '无')
+	then
+		additional(a, "PERM21");
+end		
+
+
+rule "15 通讯录个数"
+	no-loop true
+	when
+		a: Map(this.isEmpty())
+		Map(applyInfo : this['applyInfo'],
+        	applyInfo != null,
+        	system: this['system'],
+			applyInfo['userContactCount'] <= 30)
+	then
+		reject(a, "15", system);
+end
+
+/**
+ * osType枚举 IOS,ANDRIOD
+ */
+rule "22 APPLIST 多头借贷进入人工"
+	no-loop true
+	when
+		a: Map(this.isEmpty())
+		Map(applyInfo : this['applyInfo'],
+        	applyInfo != null,
+        	system: this['system'],
+			osType: this['osType'],
+			loanAppPackageCount: this['loanAppPackageCount'],
+			loanAppNameCount: this['loanAppNameCount'],
+			this['HISTORY_ANDROID_loanAPP_Count'] != null,
+			historyLoanApp1440Count: this['HISTORY_ANDROID_loanAPP_Count'],
+			HISTORY_ANDROID_loanStopedAPP_Count: this['HISTORY_ANDROID_loanStopedAPP_Count']
+			)
+	then
+		if("userLoan".equals(String.valueOf(system))){
+			return;
+		}
+		if("ANDROID".equals(String.valueOf(osType)) && historyLoanApp1440Count !=null && Integer.parseInt(String.valueOf(historyLoanApp1440Count)) >= 10){
+			additional(a, "PERM23");
+			additional(a, "MANUAL");
+		}
+		if("ANDROID".equals(String.valueOf(osType)) && HISTORY_ANDROID_loanStopedAPP_Count != null && Integer.parseInt(String.valueOf(HISTORY_ANDROID_loanStopedAPP_Count)) >= 3){
+			additional(a, "PERM22");
+			additional(a, "MANUAL");
+		}
+end
+
+
+/*
+rule "16 近三月同LBS申请次数"
+	no-loop true
+	when
+		a: Map(this.isEmpty())
+		Map(applyInfo : this['applyInfo'],
+        	applyInfo != null,
+        	system: this['system'],
+        	applyInfo['latest3MonthSameLBSApplyCount'] > 5)
+	then
+		a.put("flag","1");
+        a.put("retCode", a.get("retCode").toString().concat("|16"));
+end
+
+
+rule "17 同WIFI申请次数"
+	no-loop true
+	when
+		a: Map(this.isEmpty())
+		Map(applyInfo : this['applyInfo'],
+        	applyInfo != null,
+        	system: this['system'],
+        	applyInfo['sameDeviceBssiCount'] > 3)
+	then
+		a.put("flag","1");
+        a.put("retCode", a.get("retCode").toString().concat("|17"));
+end
+
+
+rule "19 注册设备类型"
+	no-loop true
+	when
+		a: Map(this.isEmpty())
+		Map(applyInfo : this['applyInfo'],
+        	applyInfo != null,
+        	system: this['system'],
+        	deviceModel : this['applyInfo']['deviceModel'])
+	then
+		if(deviceModel matches "pad"){
+			a.put("flag","1");
+        	a.put("retCode", a.get("retCode").toString().concat("|19"));
+		}
+end
+*/
+
+
+// 定义函数规则
+function int DateDiff(java.util.Date d1, java.util.Date d2){
+	Calendar cal = Calendar.getInstance();    
+    cal.setTime(d1);    
+    long time1 = cal.getTimeInMillis();                 
+    cal.setTime(d2);    
+    long time2 = cal.getTimeInMillis();         
+    long between_days=(time2-time1)/(1000*3600*24);   
+    return Integer.parseInt(String.valueOf(between_days)); 
+}
+
+// 数据清洗方法
+// 获取性别
+function String getSex(String identificationNo) {
+	try {
+		String flag = identificationNo.substring(16, 17);
+		if ("0".equals(flag) || "2".equals(flag) || "4".equals(flag) || "6".equals(flag) || "8".equals(flag)) {
+			return "F";
+		} else {
+			return "M";
+		}
+	} catch (Exception e) {
+		return "";
+	}
+}
+
+/**
+* 根据用户生日计算年龄
+*/
+function int getAge(String identificationNo) {
+	Date birthday;
+	try {
+		String dateStr = identificationNo.substring(6, 10)
+			.concat("-".concat(identificationNo.substring(10, 12)))
+			.concat("-".concat(identificationNo.substring(12, 14)));
+		SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+		birthday = sdf.parse(dateStr);
+	} catch (Exception e) {
+		return 0;
+	}
+	
+	Calendar cal = Calendar.getInstance();
+	if (cal.before(birthday)) {
+		return 0;
+	}
+
+	int yearNow = cal.get(Calendar.YEAR);
+	int monthNow = cal.get(Calendar.MONTH) + 1;
+	int dayOfMonthNow = cal.get(Calendar.DAY_OF_MONTH);
+
+	cal.setTime(birthday);
+	int yearBirth = cal.get(Calendar.YEAR);
+	int monthBirth = cal.get(Calendar.MONTH) + 1;
+	int dayOfMonthBirth = cal.get(Calendar.DAY_OF_MONTH);
+
+	int age = yearNow - yearBirth;
+
+	if (monthNow <= monthBirth) {
+		if (monthNow == monthBirth) {
+			// monthNow==monthBirth
+			if (dayOfMonthNow < dayOfMonthBirth) {
+				age--;
+			}
+		} else {
+        	// monthNow>monthBirth
+            age--;
+		}
+	}
+	return age;
+}
+
+// 通用方法
+function void reject(Map a, String code, Object system){
+	if("userLoan".equals(String.valueOf(system))){
+		return;
+	}
+	a.put("flag", "1");
+    a.put("retCode", a.get("retCode").toString().concat("|").concat(code)); 
+}
+
+function void additional(Map a, String code){
+	String oldCode = (String)a.get("additionalCode");
+	if(oldCode != null){
+		code = oldCode.concat("|").concat(code);
+	}
+	a.put("additionalCode", code);
+}

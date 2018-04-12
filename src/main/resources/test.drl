@@ -1,0 +1,18 @@
+package cn.caijiajia.autoaudit.domain.drool;
+
+import java.util.Map;
+
+
+//引擎名
+// test
+rule "score"
+    no-loop true       
+    when 
+        a: Map(this.isEmpty())
+    then
+    	a.put("group", "VAAA01");
+		a.put("limit", 10000);
+		a.put("score", 0.5);
+		a.put("flag", "0");
+    	a.put("retCode", "SCORE_FINAL");            
+end
