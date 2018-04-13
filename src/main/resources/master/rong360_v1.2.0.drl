@@ -1,0 +1,200 @@
+package cn.caijiajia.autoaudit.domain.drool;
+
+import java.util.Map;
+import java.util.List;  
+import java.util.Date;
+import java.util.Calendar;
+import java.text.SimpleDateFormat; 
+
+rule "rong360-flag"
+    no-loop true
+    when 
+        a: Map(this.isEmpty())
+    then
+    	a.put("flag", "0");
+        a.put("retCode", "RONG");
+end
+
+
+//jxl 对应数据库表creditdata.r360_report_basic_info
+rule "1 申报姓名和身份证与运营商登记数据比对"
+    no-loop true  
+    when 
+    	a: Map(this.isEmpty())
+    	Map(this['basicInfo'] != null, this['basicInfo']['idCardCheck'] == 3 || this['basicInfo']['nameCheck'] == 3)
+    then
+    	reject(a, "01"); 
+end
+
+//对应数据库表creditdata.r360_report_head_info
+rule "2 实名认证"
+    no-loop true
+   
+    when 
+        a: Map(this.isEmpty())
+        Map(this['headInfo'] != null, this['headInfo']['userType'] != null, this['headInfo']['userType'] != 1)
+        
+    then
+    	reject(a, "02");       
+end
+
+//对应数据库表creditdata.r360_report_risk_analysis
+rule "3 黑名单判断"
+    no-loop true  
+    when 
+    	a: Map(this.isEmpty())
+    	Map(this['riskAnalysis'] != null, this['riskAnalysis']['blacklistCnt'] > 0)
+        
+    then
+        reject(a, "03");        
+end
+
+//对应数据库表creditdata.r360_report_special_call
+rule "4 法院律师通话"
+    no-loop true  
+    when 
+    	a: Map(this.isEmpty())
+    	Map(!this.isEmpty(), specialCallList: this['specialCallList'], specialCallList != null)
+        Map(this['type'] == 7, this['talkCnt'] > 0) from specialCallList;
+    then
+    
+        reject(a, "04");        
+end
+
+/** 融360很多报告暂时取不到这个字段
+rule "5 号码使用时间短"
+    no-loop true
+   
+    when 
+    	a: Map(this.isEmpty())
+    	Map(this['basicInfo'] != null, regTime: this['basicInfo']['regTime'])
+        
+    then
+    	int months = getUsageMonths(String.valueOf(regTime));
+    	if(months < 5){
+    		reject(a, "05");
+    	}    
+end
+*/
+
+//对应数据库表creditdata.r360_report_user_portrait
+rule "6 互通电话数目"
+    no-loop true
+   
+    when 
+    	a: Map(this.isEmpty())
+    	Map(this['userPortrait'] != null, $bothCallCnt : this['userPortrait']['bothCallCnt'])
+        
+    then
+    	if($bothCallCnt == null || (int)$bothCallCnt < 10 || (int)$bothCallCnt > 300){
+    		reject(a, "06");  
+    	}
+    	if($bothCallCnt == null || (int)$bothCallCnt < 10 || (int)$bothCallCnt > 120){
+	    	additional(a, "RONG06");
+    	}  
+end
+
+//从creditdata.r360_report_call_log中提取得到
+rule "7 填写的联系人异常判断"
+    no-loop true
+   
+    when 
+    	a: Map(this.isEmpty())
+    	Map(this['commonMobileTalkCnt'] == 0,  this['closeMobileTalkCnt'] == 0)
+        
+    then
+    	additional(a, "RONG07");    
+end
+
+rule "9 贷款&银行联系异常"
+    no-loop true
+   
+   when 
+        a: Map(this.isEmpty())
+    	Map(!this.isEmpty(), specialCallList: this['specialCallList'], specialCallList != null)
+        Map(this['type'] == 4, loanPhoneList: this['phoneListSize'], loanTalkCnt: this['talkCnt']) from specialCallList
+        Map(this['type'] == 12, bankPhoneList: this['phoneListSize'], bankTalkCnt: this['talkCnt']) from specialCallList    
+    then
+    	Integer phoneList = Integer.parseInt(String.valueOf(loanPhoneList)) + Integer.parseInt(String.valueOf(bankPhoneList));
+    	Integer talkCnt = (Integer)loanTalkCnt + (Integer)bankTalkCnt;
+    	if(phoneList > 6 || talkCnt > 4){
+    		additional(a, "RONG09");
+    	}
+    	if(phoneList > 13 || talkCnt > 14){
+    		additional(a, "RONG09");   
+    	}        
+end
+
+rule "10 不良号码通话记录"
+    no-loop true
+   
+    when 
+        a: Map(this.isEmpty())
+    	Map(!this.isEmpty(), specialCallList: this['specialCallList'], specialCallList != null)    
+    	Map(this['type'] == 3, phoneList: this['phoneListSize']) from specialCallList  
+    then
+    	if(Integer.parseInt(String.valueOf(phoneList)) > 5){
+    		additional(a, "RONG10");
+    	}  
+end
+
+rule "11 通话记录通讯录覆盖率"
+    no-loop true
+   
+    when 
+        a: Map(this.isEmpty())
+        Map(this['telMatch'] <= 3)      
+    then
+    	reject(a, "11");  
+end
+
+
+// 通用方法
+function void reject(Map a, String code){
+	a.put("flag", "1");
+    a.put("retCode", a.get("retCode").toString().concat("|").concat(code)); 
+}
+
+function void additional(Map a, String code){
+	String oldCode = (String)a.get("additionalCode");
+	if(oldCode != null){
+		code = oldCode.concat("|").concat(code);
+	}
+	a.put("additionalCode", code);
+}
+
+// 根据注册日期获取用户使用号码时长
+function int getUsageMonths(String regTime){
+	if(regTime == null){
+		return 0;
+	}
+	Date regday;
+	try {
+		SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+		regday = sdf.parse(regTime);
+	} catch (Exception e) {
+		return 0;
+	}
+	
+	Calendar cal = Calendar.getInstance();
+	if (cal.before(regday)) {
+		return 0;
+	}
+
+	int yearNow = cal.get(Calendar.YEAR);
+	int monthNow = cal.get(Calendar.MONTH) + 1;
+	int dayOfMonthNow = cal.get(Calendar.DAY_OF_MONTH);
+
+	cal.setTime(regday);
+	int yearReg = cal.get(Calendar.YEAR);
+	int monthReg = cal.get(Calendar.MONTH) + 1;
+	int dayOfMonthReg = cal.get(Calendar.DAY_OF_MONTH);
+
+	int months = (yearNow - yearReg)*12;
+	months += (monthNow - monthReg);
+
+	if (dayOfMonthNow <= dayOfMonthReg) {
+		months --;
+	}
+	return months;
+}
